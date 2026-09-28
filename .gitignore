@@ -1,10 +1,8 @@
 # Secrets
 .env
 .env.*
-!.env.example
 *.pem
 *.key
-.venv
 
 # Python
 __pycache__/
@@ -16,3 +14,24 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+
+# Keep the core application sources and documentation
+!.gitignore
+!README.md
+!deploy_frontend.ps1
+!index.html
+!sw.js
+!frontend/
+!frontend/**
+
+# Ignore runtime and local artifacts
+.env
+.venv/
+*.log
+*.db
+/var/lib/couchdb/
+**/__pycache__/
+.githooks/
+backend/**
+docs/**
+changelog/**
