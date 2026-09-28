@@ -1,0 +1,100 @@
+/* Final shared presentation layer. Load after a page stylesheet.
+   It deliberately contains no layout-dependent JavaScript hooks. */
+:root {
+  --ui-radius: 16px;
+  --ui-radius-sm: 10px;
+  --ui-control-height: 42px;
+}
+
+body {
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--accent) 7%, transparent), transparent 28rem),
+    var(--bg);
+}
+
+.content { gap:clamp(16px, 2vw, 28px); }
+.card, .chart, .activity-card, .collapsible, .content-panel, .transactions,
+.section-card, .investment-form, .investment-table-wrap, .tracker-panel,
+.tracker-card, .progress-panel {
+  border-radius:var(--ui-radius) !important;
+}
+.card, .chart, .activity-card, .collapsible, .transactions, .section-card,
+.tracker-panel, .tracker-card, .progress-panel {
+  border-color:var(--border) !important;
+  box-shadow:var(--shadow-sm) !important;
+}
+
+/* Forms retain their existing structure but gain a shared rhythm and contrast. */
+.investment-form label, .loan-field label, .tracker-form label, .compact-form label,
+.form-group label, .form-row label {
+  color:var(--muted) !important;
+  font-size:.79rem;
+  font-weight:700;
+  letter-spacing:.015em;
+}
+.investment-form input, .investment-form select, .investment-form button,
+.loan-form input, .loan-form select, .loan-form button, .tracker-form input,
+.tracker-form select, .tracker-form button, .compact-form input,
+.compact-form select, .compact-form button {
+  min-height:var(--ui-control-height);
+}
+.investment-form button[type="submit"], .loan-form button[type="submit"],
+.tracker-form button[type="submit"], .compact-form button[type="submit"] {
+  background:var(--accent) !important;
+  color:#fff !important;
+  border-color:var(--accent) !important;
+  box-shadow:0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Scrollable data remains readable on narrow viewports instead of clipping. */
+.table-scroll, .table-wrap, .investment-table-wrap, .tx-scroll {
+  border:1px solid var(--border);
+  border-radius:var(--ui-radius-sm);
+  background:var(--surface);
+  scrollbar-gutter:stable;
+}
+.investment-table th, .transactions th, .daily-items th, .loan-table th,
+.table-wrap th, .table-scroll th {
+  font-size:.72rem;
+  letter-spacing:.045em;
+  text-transform:uppercase;
+}
+.investment-table td, .transactions td, .daily-items td, .loan-table td,
+.table-wrap td, .table-scroll td { vertical-align:middle; }
+.edit-entry-btn, .delete-entry-btn, .table-action, .secondary-btn, .toggle-btn {
+  border-radius:8px !important;
+}
+
+@media (max-width:1024px) {
+  .main { width:100%; margin-left:0; }
+  .content-panel, .left-panel, .right-panel { max-width:100%; }
+}
+
+@media (max-width:600px) {
+  :root { --ui-control-height:44px; }
+  .card, .chart, .activity-card, .collapsible, .content-panel, .transactions,
+  .section-card, .investment-form, .investment-table-wrap, .tracker-panel,
+  .tracker-card, .progress-panel { border-radius:12px !important; }
+  .card:hover, .chart:hover, .activity-card:hover { transform:none; }
+  .collapsible-header .title { min-width:0; }
+  .collapsible-header .controls { gap:6px; min-width:0; }
+  .collapsible-header .controls select, .collapsible-header .controls input {
+    flex:1 1 120px;
+    min-width:0;
+  }
+  .table-scroll, .table-wrap, .investment-table-wrap, .tx-scroll {
+    max-width:100%;
+    border-radius:8px;
+    -webkit-overflow-scrolling:touch;
+  }
+}
+
+
+/* Finance Tracker Test - safe modernization layer */
+.test-env-banner{margin:12px 20px 0;padding:10px 14px;border-radius:12px;background:#fff4d6;color:#6b4f00;border:1px solid #ead28b;font-size:.88rem;font-weight:600}
+.sync-status-bar{margin:10px 20px 0;padding:10px 14px;border-radius:12px;background:var(--card-bg,#fff);border:1px solid var(--border,#ddd);color:var(--text,#263238);display:flex;align-items:center;gap:8px;min-height:24px}
+.sync-config-btn{margin-left:auto;border:0;border-radius:999px;padding:8px 12px;cursor:pointer;background:var(--primary,#0f766e);color:#fff;font-weight:700}
+.sync-dialog{border:0;border-radius:18px;padding:0;max-width:420px;width:calc(100% - 32px);box-shadow:0 24px 70px rgba(0,0,0,.28);background:var(--card-bg,#fff);color:var(--text,#263238)}
+.sync-dialog::backdrop{background:rgba(0,0,0,.5)}
+.sync-dialog form{padding:22px}.sync-dialog h3{margin:0 0 8px}.sync-dialog p{font-size:.9rem;line-height:1.5;opacity:.8}.sync-dialog label{display:grid;gap:6px;margin:14px 0;font-weight:700}.sync-dialog input{height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--border,#ccc);background:transparent;color:inherit}.sync-dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.sync-dialog-actions button{min-height:44px;padding:0 16px;border:0;border-radius:10px;cursor:pointer;font-weight:700}.sync-dialog-actions button[type=submit]{background:var(--primary,#0f766e);color:#fff}
+@media(max-width:700px){.test-env-banner,.sync-status-bar{margin-left:10px;margin-right:10px}.sync-status-bar{align-items:flex-start;flex-wrap:wrap}.sync-config-btn{margin-left:0;width:100%}}
