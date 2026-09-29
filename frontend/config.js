@@ -10,7 +10,7 @@
   window.__CONFIG__ = {
     environment: 'test',
     githubPagesUrl: 'https://amitesh2204.github.io/finance-tracker-test/',
-    couchHost: 'able-andy-reporters-editorials.trycloudflare.com', // Set the current Cloudflare tunnel host here, without https://
+    couchHost: 'commentary-usa-letting-featuring.trycloudflare.com', // Set the current Cloudflare tunnel host here, without https://
     couchDbName: 'finance-test',
     usersDbName: '', // Intentionally local-only; finance-test is the only test DB created so far.
     apiBase: window.__API_BASE__,
