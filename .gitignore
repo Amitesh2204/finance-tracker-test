@@ -1,19 +1,5 @@
-# Secrets
-.env
-.env.*
-*.pem
-*.key
-
-# Python
-__pycache__/
-*.py[cod]
-.pytest_cache/
-
-# OS/editor
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+# Ignore everything by default so only the real project sources are tracked
+*
 
 # Keep the core application sources and documentation
 !.gitignore
@@ -27,7 +13,10 @@ Thumbs.db
 # Ignore runtime and local artifacts
 .env
 .venv/
+.venv311/
+.vscode/
 *.log
+*.sqlite
 *.db
 /var/lib/couchdb/
 **/__pycache__/

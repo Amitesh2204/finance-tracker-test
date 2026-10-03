@@ -88,13 +88,3 @@ body {
     -webkit-overflow-scrolling:touch;
   }
 }
-
-
-/* Finance Tracker Test - safe modernization layer */
-.test-env-banner{margin:12px 20px 0;padding:10px 14px;border-radius:12px;background:#fff4d6;color:#6b4f00;border:1px solid #ead28b;font-size:.88rem;font-weight:600}
-.sync-status-bar{margin:10px 20px 0;padding:10px 14px;border-radius:12px;background:var(--card-bg,#fff);border:1px solid var(--border,#ddd);color:var(--text,#263238);display:flex;align-items:center;gap:8px;min-height:24px}
-.sync-config-btn{margin-left:auto;border:0;border-radius:999px;padding:8px 12px;cursor:pointer;background:var(--primary,#0f766e);color:#fff;font-weight:700}
-.sync-dialog{border:0;border-radius:18px;padding:0;max-width:420px;width:calc(100% - 32px);box-shadow:0 24px 70px rgba(0,0,0,.28);background:var(--card-bg,#fff);color:var(--text,#263238)}
-.sync-dialog::backdrop{background:rgba(0,0,0,.5)}
-.sync-dialog form{padding:22px}.sync-dialog h3{margin:0 0 8px}.sync-dialog p{font-size:.9rem;line-height:1.5;opacity:.8}.sync-dialog label{display:grid;gap:6px;margin:14px 0;font-weight:700}.sync-dialog input{height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--border,#ccc);background:transparent;color:inherit}.sync-dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.sync-dialog-actions button{min-height:44px;padding:0 16px;border:0;border-radius:10px;cursor:pointer;font-weight:700}.sync-dialog-actions button[type=submit]{background:var(--primary,#0f766e);color:#fff}
-@media(max-width:700px){.test-env-banner,.sync-status-bar{margin-left:10px;margin-right:10px}.sync-status-bar{align-items:flex-start;flex-wrap:wrap}.sync-config-btn{margin-left:0;width:100%}}

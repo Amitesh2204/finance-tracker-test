@@ -267,12 +267,32 @@
     }
   }
 
-  // --- Local-only test authentication helpers ---
-  // Finance data sync is independent of this local login database. The test
-  // environment intentionally does not replicate user credentials to CouchDB.
+  // --- Application URL helpers ---
+  function getAppBasePath() {
+    const configured = window.__APP_BASE_PATH__;
+    if (configured) {
+      return configured.endsWith('/') ? configured : `${configured}/`;
+    }
+
+    const path = window.location.pathname || '/';
+
+    if (path.includes('/frontend/')) {
+      return path.split('/frontend/')[0] + '/';
+    }
+
+    return '/';
+  }
+
+  function appPageUrl(page) {
+    return `${getAppBasePath()}frontend/pages/${page}`;
+  }
+  // --- Users DB helper (PouchDB) ---
+  // The users DB and CouchDB authentication are managed by frontend/db.js.
+  // CouchDB credentials are supplied at runtime and are never embedded here.
   function getUsersDB() {
     try {
       if (window.financeUsersDB) return window.financeUsersDB;
+
       const usersDb = new PouchDB(USERS_DB_NAME);
       window.financeUsersDB = usersDb;
       return usersDb;
@@ -282,6 +302,8 @@
     }
   }
 
+  // Legacy hash retained only for existing accounts created before
+  // PBKDF2-SHA-256 was introduced. Successful legacy logins are upgraded.
   function simpleHash(str) {
     let h = 2166136261 >>> 0;
     for (let i = 0; i < String(str).length; i++) {
@@ -296,95 +318,187 @@
     bytes.forEach(b => binary += String.fromCharCode(b));
     return btoa(binary);
   }
+
   function base64ToBytes(value) {
     const binary = atob(value);
     return Uint8Array.from(binary, c => c.charCodeAt(0));
   }
+
   async function securePasswordHash(password, saltBytes) {
-    if (!window.crypto?.subtle) throw new Error('Secure password hashing is unavailable in this browser.');
+    if (!window.crypto?.subtle) {
+      throw new Error('Secure password hashing is unavailable in this browser.');
+    }
+
     const salt = saltBytes || crypto.getRandomValues(new Uint8Array(16));
-    const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' }, material, 256);
-    return { algorithm: 'PBKDF2-SHA-256', iterations: 150000, salt: bytesToBase64(salt), hash: bytesToBase64(new Uint8Array(bits)) };
+    const material = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(password),
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt,
+        iterations: 150000,
+        hash: 'SHA-256'
+      },
+      material,
+      256
+    );
+
+    return {
+      algorithm: 'PBKDF2-SHA-256',
+      iterations: 150000,
+      salt: bytesToBase64(salt),
+      hash: bytesToBase64(new Uint8Array(bits))
+    };
   }
+
   function constantTimeEqual(a, b) {
     if (a.length !== b.length) return false;
+
     let diff = 0;
-    for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    for (let i = 0; i < a.length; i++) {
+      diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+
     return diff === 0;
   }
+
   async function verifyPassword(doc, password) {
     if (doc.passwordHashV2?.hash && doc.passwordHashV2?.salt) {
-      const result = await securePasswordHash(password, base64ToBytes(doc.passwordHashV2.salt));
+      const result = await securePasswordHash(
+        password,
+        base64ToBytes(doc.passwordHashV2.salt)
+      );
+
       return constantTimeEqual(result.hash, doc.passwordHashV2.hash);
     }
-    // Legacy compatibility: a successful login upgrades the local user record.
+
     return doc.passwordHash === simpleHash(password);
   }
 
   async function registerUser({ username, email, password }) {
-    if (!username || !password) throw new Error('Username and password are required.');
-    if (password.length < 8) throw new Error('Test password must be at least 8 characters.');
+    if (!username || !password) {
+      throw new Error('Username and password are required.');
+    }
+
+    if (password.length < 8) {
+      throw new Error('Password must be at least 8 characters.');
+    }
+
     const usersDb = getUsersDB();
     if (!usersDb) throw new Error('Users DB not available');
+
     const id = `user:${username.toLowerCase()}`;
     const existing = await usersDb.get(id).catch(() => null);
-    if (existing) throw new Error('User already exists');
+
+    if (existing) {
+      throw new Error('User already exists');
+    }
+
     const passwordHashV2 = await securePasswordHash(password);
+
     await usersDb.put({
-      _id: id, username, email: email || '', passwordHashV2,
-      createdAt: new Date().toISOString(), environment: 'test'
+      _id: id,
+      username,
+      email: email || '',
+      passwordHashV2,
+      createdAt: new Date().toISOString()
     });
+
     return { ok: true, id };
   }
 
   async function loginUser({ usernameOrEmail, password }) {
     const usersDb = getUsersDB();
     if (!usersDb) throw new Error('Users DB not available');
-    let doc = null;
+
     const lookup = String(usernameOrEmail || '').trim();
+    let doc = null;
+
     if (lookup.includes('@') && typeof usersDb.find === 'function') {
-      const res = await usersDb.find({ selector: { email: lookup } }).catch(() => null);
-      if (res?.docs?.length) doc = res.docs[0];
+      const res = await usersDb.find({
+        selector: { email: lookup }
+      }).catch(() => null);
+
+      if (res?.docs?.length) {
+        doc = res.docs[0];
+      }
     }
+
     if (!doc && lookup.includes('@')) {
       const all = await usersDb.allDocs({ include_docs: true });
-      doc = all.rows.map(r => r.doc).find(d => d.email === lookup) || null;
+      doc = all.rows
+        .map(r => r.doc)
+        .find(d => d.email === lookup) || null;
     }
-    if (!doc) doc = await usersDb.get(`user:${lookup.toLowerCase()}`).catch(() => null);
-    if (!doc) throw new Error('User not found');
-    if (!(await verifyPassword(doc, password || ''))) throw new Error('Invalid credentials');
 
-    // Upgrade old simpleHash users after a successful login.
+    if (!doc) {
+      doc = await usersDb
+        .get(`user:${lookup.toLowerCase()}`)
+        .catch(() => null);
+    }
+
+    if (!doc) {
+      throw new Error('User not found');
+    }
+
+    const validPassword = await verifyPassword(doc, password || '');
+
+    if (!validPassword) {
+      throw new Error('Invalid credentials');
+    }
+
+    // Upgrade an existing legacy simpleHash account after successful login.
     if (!doc.passwordHashV2) {
       doc.passwordHashV2 = await securePasswordHash(password || '');
       delete doc.passwordHash;
       await usersDb.put(doc);
     }
-    const user = { username: doc.username, email: doc.email, id: doc._id };
-    // Session state only; authentication state is not persisted to localStorage.
+
+    const user = {
+      username: doc.username,
+      email: doc.email,
+      id: doc._id
+    };
+
     sessionStorage.setItem(USER_KEY, JSON.stringify(user));
     window.__CURRENT_USER__ = user;
+
     return user;
   }
 
   function logoutUser() {
     sessionStorage.removeItem(USER_KEY);
     window.__CURRENT_USER__ = null;
+
+    if (window.financeSync && typeof window.financeSync.clear === 'function') {
+      window.financeSync.clear();
+    }
+
     return true;
   }
 
   function getCurrentUser() {
     if (window.__CURRENT_USER__) return window.__CURRENT_USER__;
+
     try {
       const raw = sessionStorage.getItem(USER_KEY);
       if (!raw) return null;
+
       const parsed = JSON.parse(raw);
       window.__CURRENT_USER__ = parsed;
       return parsed;
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
+  // Expose auth helpers globally.
   window.registerUser = registerUser;
   window.loginUser = loginUser;
   window.logoutUser = logoutUser;
@@ -1116,7 +1230,7 @@
       badge.style.display = 'flex';
       badge.style.alignItems = 'center';
       badge.style.gap = '8px';
-      badge.innerHTML = `<span class="name" style="font-weight:600;color:#ecf0f1">${currentUser.username}</span><a class="logout-link" href="frontend/pages/logout.html" style="color:#e74c3c;text-decoration:none">Logout</a>`;
+      badge.innerHTML = `<span class="name" style="font-weight:600;color:#ecf0f1">${escapeHtml(currentUser.username)}</span><a class="logout-link" href="${appPageUrl('logout.html')}" style="color:#e74c3c;text-decoration:none">Logout</a>`;
       topbarRight.appendChild(badge);
     }
   }
@@ -1128,8 +1242,7 @@
       const currentUser = getCurrentUser();
       if (requireLogin && !currentUser) {
         if (!/login\.html$/i.test(window.location.pathname)) {
-          const base = (window.location.pathname || '').replace(/\/[^/]*$/, '/');
-          window.location.href = base + 'frontend/pages/login.html';
+          window.location.href = appPageUrl('login.html');
           return;
         }
       }
@@ -1155,8 +1268,6 @@
   // Expose for debugging
   window._app_helpers = {
     getUsersDB,
-    replicateToRemoteWithRetries,
-    replicateFromRemoteWithRetries,
     saveLocalEntry,
     fetchEntries,
     addEntry

@@ -1,105 +1,381 @@
-// db.js - local-first PouchDB and authenticated test CouchDB sync.
-// The finance document flow is intentionally preserved: PouchDB <-> CouchDB.
+// db.js - Shared database functions (main finance DB + users DB sync)
+// Runtime CouchDB credentials are kept only in sessionStorage.
+
 (function () {
   'use strict';
-  const cfg = () => window.__CONFIG__ || {};
-  const SYNC_SESSION_KEY = 'finance-test:couch-sync-credentials';
-  const db = new PouchDB('finance-test');
-  window.financeDB = db;
-  let syncHandle = null;
 
-  function setSyncStatus(state, detail) {
-    window.__FINANCE_SYNC_STATUS__ = { state, detail: detail || '', at: new Date().toISOString() };
-    window.dispatchEvent(new CustomEvent('finance-sync-status', { detail: window.__FINANCE_SYNC_STATUS__ }));
+  const SYNC_SESSION_KEY = 'finance-tracker:couch-sync-credentials';
+  let financeSyncHandle = null;
+  let usersSyncHandle = null;
+
+  function getConfig() {
+    return window.__CONFIG__ || {};
   }
 
   function getStoredCredentials() {
     try {
       const raw = sessionStorage.getItem(SYNC_SESSION_KEY);
       return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+    } catch (err) {
+      console.warn('Unable to read CouchDB session credentials:', err);
+      return null;
+    }
   }
 
   function saveCredentials(username, password) {
-    if (!username || !password) throw new Error('CouchDB username and password are required.');
-    sessionStorage.setItem(SYNC_SESSION_KEY, JSON.stringify({ username, password }));
+    if (!username || !password) {
+      throw new Error('CouchDB username and password are required.');
+    }
+
+    sessionStorage.setItem(
+      SYNC_SESSION_KEY,
+      JSON.stringify({ username, password })
+    );
   }
 
   function clearCredentials() {
     sessionStorage.removeItem(SYNC_SESSION_KEY);
-    if (syncHandle) { try { syncHandle.cancel(); } catch {} syncHandle = null; }
+
+    if (financeSyncHandle) {
+      try { financeSyncHandle.cancel(); } catch (err) {}
+      financeSyncHandle = null;
+    }
+
+    if (usersSyncHandle) {
+      try { usersSyncHandle.cancel(); } catch (err) {}
+      usersSyncHandle = null;
+    }
+
     setSyncStatus('signed-out', 'CouchDB credentials cleared');
   }
 
-  function buildRemoteUrl() {
-    const host = String(cfg().couchHost || '').trim().replace(/^https?:\/\//i, '').replace(/\/$/, '');
-    const dbName = String(cfg().couchDbName || 'finance-test').trim();
-    if (!host) return null;
-    if (!/^[A-Za-z0-9.-]+(?::\d+)?$/.test(host)) throw new Error('Invalid Cloudflare/CouchDB host in config.js');
-    if (!/^[A-Za-z0-9_$()+\-\/]+$/.test(dbName)) throw new Error('Invalid CouchDB database name');
-    return `https://${host}/${dbName}`;
+  function setSyncStatus(state, detail) {
+    window.__FINANCE_SYNC_STATUS__ = {
+      state,
+      detail: detail || '',
+      at: new Date().toISOString()
+    };
+
+    window.dispatchEvent(
+      new CustomEvent('finance-sync-status', {
+        detail: window.__FINANCE_SYNC_STATUS__
+      })
+    );
   }
 
-  function startRemoteSync(credentials) {
-    const remoteUrl = buildRemoteUrl();
+  function getRemoteUrl(dbName) {
+    const cfg = getConfig();
+    const host = String(cfg.couchHost || '')
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\/$/, '');
+
+    const name = String(dbName || '').trim();
+
+    if (!host || !name) return null;
+
+    if (!/^[A-Za-z0-9.-]+(?::\d+)?$/.test(host)) {
+      throw new Error('Invalid CouchDB host in config.js');
+    }
+
+    if (!/^[A-Za-z0-9_$()+\-\/]+$/.test(name)) {
+      throw new Error('Invalid CouchDB database name');
+    }
+
+    return `https://${host}/${name}`;
+  }
+
+  function getRemoteOptions(credentials) {
+    const remoteOpts = { skip_setup: true };
+
+    if (credentials?.username && credentials?.password) {
+      remoteOpts.auth = {
+        username: credentials.username,
+        password: credentials.password
+      };
+    }
+
+    return remoteOpts;
+  }
+
+  // Main local finance DB.
+  // The local PouchDB name is intentionally "finance".
+  // The remote CouchDB database is configured separately via couchDbName
+  // (for example, "finance-test" in the test environment).
+  const db = new PouchDB('finance');
+  window.financeDB = db;
+
+  function startFinanceSync(credentials) {
+    const cfg = getConfig();
+    const remoteUrl = getRemoteUrl(cfg.couchDbName || 'finance');
+
     if (!remoteUrl) {
-      setSyncStatus('not-configured', 'Set couchHost in frontend/config.js');
+      setSyncStatus('not-configured', 'CouchDB host/database is not configured');
       return false;
     }
+
     if (!credentials?.username || !credentials?.password) {
-      setSyncStatus('auth-required', 'Enter the dedicated test CouchDB credentials');
+      setSyncStatus('auth-required', 'Enter the CouchDB credentials to enable sync');
       return false;
     }
-    if (syncHandle) { try { syncHandle.cancel(); } catch {} }
 
-    const remoteDB = new PouchDB(remoteUrl, {
-      skip_setup: true,
-      auth: { username: credentials.username, password: credentials.password }
-    });
+    if (financeSyncHandle) {
+      try { financeSyncHandle.cancel(); } catch (err) {}
+    }
 
-    syncHandle = db.sync(remoteDB, { live: true, retry: true })
+    const remoteDB = new PouchDB(
+      remoteUrl,
+      getRemoteOptions(credentials)
+    );
+
+    financeSyncHandle = db.sync(remoteDB, {
+      live: true,
+      retry: true
+    })
       .on('change', info => {
-        setSyncStatus('synced', `Change replicated (${info.direction || 'sync'})`);
-        window.dispatchEvent(new CustomEvent('finance-sync-change', { detail: info }));
+        setSyncStatus(
+          'synced',
+          `Finance change replicated (${info.direction || 'sync'})`
+        );
       })
-      .on('paused', info => setSyncStatus('synced', info ? 'Waiting for changes' : 'Paused'))
-      .on('active', () => setSyncStatus('syncing', 'Replication active'))
-      .on('denied', err => setSyncStatus('error', 'CouchDB denied the replication request'))
-      .on('error', err => setSyncStatus('error', 'Replication error; check Cloudflare/CouchDB availability'));
+      .on('paused', info => {
+        setSyncStatus(
+          'synced',
+          info ? 'Finance sync waiting for changes' : 'Finance sync paused'
+        );
+      })
+      .on('active', () => {
+        setSyncStatus('syncing', 'Finance replication active');
+      })
+      .on('denied', () => {
+        setSyncStatus(
+          'error',
+          'CouchDB denied the finance replication request'
+        );
+      })
+      .on('error', () => {
+        setSyncStatus(
+          'error',
+          'Finance replication error; check CouchDB availability and credentials'
+        );
+      });
 
-    setSyncStatus('syncing', `Connected to ${cfg().couchDbName}`);
+    setSyncStatus('syncing', `Connected to ${cfg.couchDbName || 'finance'}`);
     return true;
+  }
+
+  // Users DB
+  function initUsersDb(credentials) {
+    try {
+      const usersDb = window.financeUsersDB || new PouchDB('finance-users');
+      window.financeUsersDB = usersDb;
+
+      const cfg = getConfig();
+
+      // User credentials remain local unless remote user sync is explicitly enabled.
+      if (cfg.allowRemoteUserSync !== true) {
+        console.debug(
+          'initUsersDb: remote user sync disabled by configuration; users remain local'
+        );
+        return usersDb;
+      }
+
+      const remoteUsersUrl = getRemoteUrl('finance-users');
+
+      if (!remoteUsersUrl) {
+        console.debug(
+          'initUsersDb: no remote users URL configured; users remain local'
+        );
+        return usersDb;
+      }
+
+      if (!credentials?.username || !credentials?.password) {
+        console.debug(
+          'initUsersDb: CouchDB credentials not available; users remain local'
+        );
+        return usersDb;
+      }
+
+      if (usersSyncHandle) {
+        try { usersSyncHandle.cancel(); } catch (err) {}
+        usersSyncHandle = null;
+      }
+
+      const remoteUsers = new PouchDB(
+        remoteUsersUrl,
+        getRemoteOptions(credentials)
+      );
+
+      usersSyncHandle = usersDb.sync(remoteUsers, {
+        live: true,
+        retry: true
+      })
+        .on('change', info => {
+          console.debug('Users DB sync change', info);
+        })
+        .on('paused', info => {
+          console.debug(
+            'Users DB sync paused',
+            info ? 'waiting for changes' : ''
+          );
+        })
+        .on('active', () => {
+          console.debug('Users DB sync active');
+        })
+        .on('denied', () => {
+          console.warn('Users DB sync denied');
+        })
+        .on('error', err => {
+          console.error('Users DB sync error', err);
+        });
+
+      console.debug('initUsersDb: usersDb.sync started', {
+        remoteUsersUrl,
+        hasAuth: true
+      });
+
+      // Create a Mango index on email to speed up email lookups.
+      (async () => {
+        try {
+          if (typeof usersDb.createIndex === 'function') {
+            await usersDb.createIndex({
+              index: { fields: ['email'] }
+            }).catch(() => null);
+          }
+        } catch (err) {
+          console.warn('usersDb.createIndex failed', err);
+        }
+      })();
+
+      return usersDb;
+    } catch (err) {
+      console.warn('initUsersDb failed', err);
+      return window.financeUsersDB || null;
+    }
+  }
+
+  function startAllSync(credentials) {
+    if (!credentials?.username || !credentials?.password) {
+      setSyncStatus(
+        'auth-required',
+        'Enter the CouchDB username and password to enable sync'
+      );
+      return false;
+    }
+
+    const financeStarted = startFinanceSync(credentials);
+    initUsersDb(credentials);
+
+    return financeStarted;
   }
 
   window.financeSync = {
     configure(username, password) {
       saveCredentials(username, password);
-      return startRemoteSync({ username, password });
+      return startAllSync({ username, password });
     },
-    start() { return startRemoteSync(getStoredCredentials()); },
-    clear: clearCredentials,
-    status() { return window.__FINANCE_SYNC_STATUS__ || { state: 'not-started' }; },
-    isConfigured() { return !!buildRemoteUrl(); }
+
+    start() {
+      return startAllSync(getStoredCredentials());
+    },
+
+    clear() {
+      clearCredentials();
+    },
+
+    status() {
+      return window.__FINANCE_SYNC_STATUS__ || {
+        state: 'not-started',
+        detail: ''
+      };
+    },
+
+    isConfigured() {
+      const cfg = getConfig();
+      return !!(cfg.couchHost && cfg.couchDbName);
+    },
+
   };
 
-  setSyncStatus('local-only', 'Offline/local PouchDB mode until test CouchDB is configured');
-  try { startRemoteSync(getStoredCredentials()); } catch (err) { setSyncStatus('error', err.message); }
+  // Start automatically when a runtime session already exists.
+  try {
+    const credentials = getStoredCredentials();
 
-  window.addEntry = async function(entry) { return db.post(entry); };
-  window.fetchEntries = async function() {
-    const result = await db.allDocs({ include_docs: true });
-    return result.rows.map(r => r.doc).filter(Boolean);
+    if (credentials?.username && credentials?.password) {
+      startAllSync(credentials);
+    } else {
+      setSyncStatus(
+        'local-only',
+        'Local PouchDB mode until CouchDB credentials are supplied'
+      );
+    }
+  } catch (err) {
+    setSyncStatus('error', err.message);
+  }
+
+  // --- Expose helper wrappers for entries (keeps previous behavior) ---
+  window.addEntry = async function (entry) {
+    try {
+      return await db.post(entry);
+    } catch (err) {
+      console.error('Error adding entry:', err);
+      throw err;
+    }
   };
-  window.deleteEntry = async function(docOrId) {
-    const id = typeof docOrId === 'string' ? docOrId : docOrId && docOrId._id;
-    if (!id) throw new Error('deleteEntry: no _id provided');
-    return db.remove(await db.get(id));
+
+  window.fetchEntries = async function () {
+    try {
+      const result = await db.allDocs({ include_docs: true });
+      return result.rows.map(r => r.doc);
+    } catch (err) {
+      console.error('Error fetching entries:', err);
+      return [];
+    }
   };
-  window.updateEntry = async function(docOrId, patchedData) {
-    const id = typeof docOrId === 'string' ? docOrId : docOrId && docOrId._id;
-    if (!id) throw new Error('updateEntry: no _id provided');
-    const latest = await db.get(id);
-    return db.put({ ...latest, ...patchedData, _id: id, _rev: latest._rev });
+
+  window.deleteEntry = async function (docOrId) {
+    try {
+      const id =
+        typeof docOrId === 'string'
+          ? docOrId
+          : docOrId && docOrId._id;
+
+      if (!id) {
+        throw new Error('deleteEntry: no _id provided');
+      }
+
+      const latest = await db.get(id);
+      return await db.remove(latest);
+    } catch (err) {
+      console.error('Error deleting entry:', err);
+      throw err;
+    }
   };
+
+  window.updateEntry = async function (docOrId, patchedData) {
+    try {
+      const id =
+        typeof docOrId === 'string'
+          ? docOrId
+          : docOrId && docOrId._id;
+
+      if (!id) {
+        throw new Error('updateEntry: no _id provided');
+      }
+
+      const latest = await db.get(id);
+
+      return await db.put({
+        ...latest,
+        ...patchedData,
+        _id: id,
+        _rev: latest._rev
+      });
+    } catch (err) {
+      console.error('Error updating entry:', err);
+      throw err;
+    }
+  };
+
   window._localFinanceDB = db;
 })();

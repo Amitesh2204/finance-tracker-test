@@ -26,13 +26,14 @@
           window.logoutUser();
         } else {
           sessionStorage.removeItem('finance-tracker:current-user');
+          sessionStorage.removeItem('finance-tracker:couch-sync-credentials');
           window.__CURRENT_USER__ = null;
         }
       } catch(e) {
         console.warn('logout error', e);
       }
       // show message and redirect to login page after short delay
-      const loginPath = '../../frontend/pages/login.html';
+      const loginPath = 'login.html';
       const backHome = document.getElementById('backHome');
       setTimeout(() => {
         // If login page exists, go there; otherwise go to root index
